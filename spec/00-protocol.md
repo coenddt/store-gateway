@@ -41,8 +41,11 @@ await serve(store, {
   失败保留旧路由并返回 `500`（不半替换）。并发 reload 串行化（互斥锁），后到者等待。
 - **gRPC**：独立 server，不在 reload 范围（见规则 5）。
 - **D1 闭环桥（可选）**：`opts.reload = { tenant, env }` 时，reload 在重装配**之前**按该 ns 调
-  `store.restoreDefs({ tenant, env })`，由宿主从持久化定义表 `__schemaDef` 重建注册表
-  （`loadDefs → 逐条 register`）——使定义控制面 publish 落库的新定义经**一次 reload** 即对协议面可见。
+  `store.restoreDefs({ tenant, env })`，由宿主从持久化定义表**按 kind 重建「schema + workflow」两类注册表**
+  （`__schemaDef` → `schema.register`；`__workflowDef` → `workflow.register`）——使定义控制面 publish
+  落库的新定义（schema 与 workflow 定义走同一闭环）经**一次 reload** 即对协议面可见。
+  回滚同理：控制面 `rollback` 为**追加式**（以历史 `defn` 落新版本行），`loadDefs` 取其「最新 active」，
+  **一次 reload** 即按回滚后的历史 `defn` 装配。
   reload 响应 `{ data: { reloaded: true, resources } }` 的 `resources` 为重建后的暴露资源数。
 
 | 情形 | 行为 |

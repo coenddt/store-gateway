@@ -117,6 +117,58 @@ test('D1：opts.reload 缺 tenant/env → serve 显式报错（fail-fast）', as
   );
 });
 
+test('D21：rollback 后 reload 按历史 defn 装配（网关侧闭环）', async () => {
+  // 建模宿主持久化态：回滚前「最新 active」= v2（含 price）；回滚后宿主以历史 defn(v1) 落新版本行
+  const persisted = {
+    v1: { name: 'Order', collection: 'orders', fields: { _id: { type: 'string' }, title: { type: 'string' } } },
+    v2: {
+      name: 'Order',
+      collection: 'orders',
+      fields: { _id: { type: 'string' }, title: { type: 'string' }, price: { type: 'number' } },
+    },
+  };
+  let latest = persisted.v2; // 持久化定义表「最新 active 行」的 defn
+  const seen = []; // 记录装配期 store-api 实际读到的 Order defn
+  const store = makeMockStore();
+  store.get = (n) => {
+    if (n === 'Order') {
+      seen.push(JSON.parse(JSON.stringify(latest.fields)));
+      return latest;
+    }
+    return n === 'User' ? DEFN : null;
+  };
+  const calls = [];
+  // 宿主 hydrate：loadDefs → 逐条 register（真实实现见 nodejs-store metadef.restoreDefs）
+  store.restoreDefs = async (opts) => {
+    calls.push(opts);
+    if (!store.names.includes('Order')) store.names.push('Order');
+    return { total: 1, applied: 1 };
+  };
+
+  const gw = await serve(store, {
+    http: { port: 0 },
+    rest: { enabled: true, prefix: '/api' },
+    reload: { tenant: 't-d21', env: 'dev' },
+  });
+  try {
+    // 回滚前一次 reload：协议面按 v2 装配（含 price）
+    let rl = await fetch(`${gw.http.url}/-/reload`, { method: 'POST' });
+    assert.equal(rl.status, 200);
+    assert.deepEqual(seen.at(-1), persisted.v2.fields);
+
+    // 控制面 rollback → 宿主以历史 defn(v1) 落新版本行 → 持久化「最新 active」= v1
+    latest = persisted.v1;
+
+    rl = await fetch(`${gw.http.url}/-/reload`, { method: 'POST' });
+    assert.equal(rl.status, 200);
+    assert.deepEqual(calls.at(-1), { tenant: 't-d21', env: 'dev' }); // hydrate 先于装配
+    assert.deepEqual(seen.at(-1), persisted.v1.fields); // 网关按回滚后的历史 defn 装配
+    assert.equal('price' in seen.at(-1), false);
+  } finally {
+    await gw.close();
+  }
+});
+
 test('reload 构建失败 → 500 且保留旧路由（原子替换，不半替换）', async () => {
   const store = makeMockStore();
   const gw = await serve(store, { http: { port: 0 }, rest: { enabled: true, prefix: '/api' } });
