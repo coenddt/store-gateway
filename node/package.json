@@ -23,9 +23,9 @@
   },
   "dependencies": {
     "fastify": "^5.0.0",
-    "store-api-node": "file:../../store-api/node",
-    "store-grpc-node": "file:../../store-grpc/node",
-    "store-graphql-node": "file:../../store-graphql/node"
+    "store-api-node": "^0.1.0",
+    "store-grpc-node": "^0.1.0",
+    "store-graphql-node": "^0.1.0"
   },
   "peerDependencies": {
     "nodejs-store": ">=1.0.0",
