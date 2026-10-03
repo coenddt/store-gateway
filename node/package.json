@@ -18,6 +18,10 @@
     "pluggable"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coenddt/store-gateway.git"
+  },
   "engines": {
     "node": ">=18"
   },
