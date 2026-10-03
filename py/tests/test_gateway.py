@@ -38,8 +38,18 @@ def make_mock_store():
 
     class Store:
         PermissionError = PermissionErrorMock
-        list = staticmethod(lambda: ["User"])
+
+        def __init__(self):
+            self.names = ["User"]          # 可变列表：reload 用例据此调整暴露资源
+            self.restore_calls = []        # 记录 reload 前 hydrate 的调用参数
+
+        def list(self):
+            return self.names
+
         get = staticmethod(lambda name: DEFN)
+
+        async def restore_defs(self, opts):
+            self.restore_calls.append(opts)
 
         @staticmethod
         async def query(gql, params=None):
@@ -159,3 +169,62 @@ def test_missing_skin_package_raises(monkeypatch):
     monkeypatch.setattr(importlib, "import_module", fake_import_module)
     with pytest.raises(ImportError, match="store_api_py"):
         build(store, rest={"enabled": True})
+
+
+# ─── 运行期重装配（reload；对齐 node store-gateway） ───────────────────
+
+
+def test_reload_reassembles():
+    """POST /-/reload 重装配 HTTP 侧：资源数反映当下注册表，新资源路由可访问。"""
+    store = make_mock_store()
+    gw = build(store, rest={"enabled": True, "prefix": "/api"})
+    try:
+        client = TestClient(gw.app)
+        r = client.post("/-/reload")
+        assert r.status_code == 200
+        assert r.json() == {"data": {"reloaded": True, "resources": 1}}
+
+        store.names.append("Order")  # 运行期新注册（快照外）→ 仅经 reload 进入路由
+        r2 = client.post("/-/reload")
+        assert r2.status_code == 200
+        assert r2.json()["data"]["resources"] == 2  # 递增
+        assert client.get("/api/Order").status_code == 200
+    finally:
+        if gw.grpc is not None:
+            gw.stop()
+
+
+def test_reload_hydrates_registry():
+    """配 reload={tenant,env} → 重装配前按 ns 调 store.restore_defs（D1 闭环桥）。"""
+    store = make_mock_store()
+    gw = build(store, rest={"enabled": True}, reload={"tenant": "t1", "env": "dev"})
+    try:
+        client = TestClient(gw.app)
+        r = client.post("/-/reload")
+        assert r.status_code == 200
+        assert store.restore_calls == [{"tenant": "t1", "env": "dev"}]
+    finally:
+        if gw.grpc is not None:
+            gw.stop()
+
+
+def test_reload_unsupported_store():
+    """配 reload 但 store 无重建能力 → 500 ERR_RELOAD_UNSUPPORTED（禁静默）。"""
+    store = make_mock_store()
+    store.restore_defs = None  # 显式移除重建能力
+    gw = build(store, rest={"enabled": True}, reload={"tenant": "t1", "env": "dev"})
+    try:
+        client = TestClient(gw.app)
+        r = client.post("/-/reload")
+        assert r.status_code == 500
+        assert r.json()["error"]["code"] == "ERR_RELOAD_UNSUPPORTED"
+    finally:
+        if gw.grpc is not None:
+            gw.stop()
+
+
+def test_reload_missing_ns_raises():
+    """reload 缺 tenant/env → 构造期 fail-fast（ERR_RELOAD_CONFIG）。"""
+    store = make_mock_store()
+    with pytest.raises(ValueError, match="ERR_RELOAD_CONFIG"):
+        build(store, rest={"enabled": True}, reload={"tenant": "t1"})

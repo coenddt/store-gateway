@@ -28,7 +28,10 @@ await serve(store, {
 ## 返回值
 
 - node：`{ http: { url }, grpc: { port } | null, close(): Promise<void> }`（close 同时关 HTTP 与 gRPC）。
-- py：`build(store, **opts) -> Gateway { app, grpc, run(host, port), stop() }`——`run()` 用 uvicorn 阻塞承载 HTTP；grpc server 在 `build` 时即已 start；`stop()` 停 gRPC（HTTP 由 uvicorn 生命周期管理）。
+- py：`build(store, **opts) -> Gateway { app, grpc, run(host, port), reload(), stop() }`——
+  `app` 为稳定 ASGI 入口（内部委托当前装配）；`run()` 用 uvicorn 阻塞承载 HTTP；
+  grpc server 在 `build` 时即已 start；`reload()` 等同 `POST /-/reload`（async，返回暴露资源数）；
+  `stop()` 停 gRPC（HTTP 由 uvicorn 生命周期管理）。
 
 ## 上下文注入
 
@@ -54,6 +57,13 @@ await serve(store, {
 | 配置且 store 提供 `restoreDefs` | 先重建注册表，再装配 |
 | 配置但 store 无 `restoreDefs` | reload 显式 `500` `ERR_RELOAD_UNSUPPORTED`，保留旧路由（禁静默失守） |
 | `opts.reload` 缺 `tenant`/`env` | `serve` 构造期显式报错 `ERR_RELOAD_CONFIG`（fail-fast） |
+
+- **node / py 同构**：node 由自建 http server 承接 `POST /-/reload`（原子替换 `state.handler`）；
+  py 由稳定 ASGI `_Dispatch` 承接（原子替换 `state['app']`）。两者语义逐条一致。
+- **协议层快照边界（B4，设计 D5）**：四层协议皮（store-api / store-graphql / store-grpc / store-mcp）
+  均为**装配期快照**——运行期新注册的 schema **不**自动进入已装配的路由（见
+  `store-api/spec/01-routing.md`）。**唯一热更路径 = 经网关 `POST /-/reload` 整表重装配**；
+  层内不改各皮支持运行期动态注册（成本高，设计 §8 决策 D5）。
 
 ## 归档表 / 资源可见性
 
