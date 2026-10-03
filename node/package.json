@@ -25,6 +25,10 @@
   "engines": {
     "node": ">=18"
   },
+  "devDependencies": {
+    "graphql-yoga": "^5.24.1",
+    "@grpc/grpc-js": "^1.10.0"
+  },
   "dependencies": {
     "fastify": "^5.0.0",
     "store-api-node": "^0.1.0",
