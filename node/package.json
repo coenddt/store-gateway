@@ -1,6 +1,6 @@
 {
   "name": "store-gateway-node",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Optional combiner for the three common-store API skins (REST / GraphQL / gRPC): config-driven per-skin enable switches, all skins optional peer deps",
   "main": "src/index.js",
   "files": [
