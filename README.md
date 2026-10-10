@@ -6,7 +6,7 @@ Optional combiner for the **three API skins** of the common-store data-layer fam
 |---|---|---|
 | REST | [store-api](https://github.com/coenddt/store-api) (node / py / go / rust) | HTTP |
 | GraphQL | [store-graphql](https://github.com/coenddt/store-graphql) (node / py / go) | HTTP (same server as REST) |
-| gRPC | [store-grpc](https://github.com/coenddt/store-gateway/../store-grpc) (node / py) | independent port |
+| gRPC | [store-grpc](https://github.com/coenddt/store-grpc) (node / py) | independent port |
 
 > 中文说明：[README.zh-CN.md](./README.zh-CN.md)
 

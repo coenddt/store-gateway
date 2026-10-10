@@ -1,6 +1,6 @@
 [project]
 name = "store-gateway-py"
-version = "0.1.1"
+version = "0.1.2"
 description = "Optional combiner for the three py-store API skins (REST store-api-py / GraphQL store-graphql-py / gRPC store-grpc-py): config-driven per-skin enable switches"
 readme = "README.md"
 requires-python = ">=3.10"

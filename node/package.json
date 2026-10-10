@@ -1,6 +1,6 @@
 {
   "name": "store-gateway-node",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Optional combiner for the three common-store API skins (REST / GraphQL / gRPC): config-driven per-skin enable switches, all skins optional peer deps",
   "main": "src/index.js",
   "files": [
@@ -31,9 +31,9 @@
   },
   "dependencies": {
     "fastify": "^5.0.0",
-    "store-api-node": "^0.1.0",
-    "store-grpc-node": "^0.1.0",
-    "store-graphql-node": "^0.1.0"
+    "store-api-node": "^0.4.0",
+    "store-grpc-node": "^0.2.0",
+    "store-graphql-node": "^0.3.0"
   },
   "peerDependencies": {
     "nodejs-store": ">=1.0.0",
