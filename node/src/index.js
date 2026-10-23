@@ -46,10 +46,11 @@ function readSkins(opts) {
   const rest = { enabled: false, ...(opts.rest || {}) };
   const graphql = { enabled: false, ...(opts.graphql || {}) };
   const grpc = { enabled: false, ...(opts.grpc || {}) };
-  if (!rest.enabled && !graphql.enabled && !grpc.enabled) {
-    throw new Error('ERR_NO_SKIN:rest / graphql / grpc 至少启用一项（spec/00-protocol.md 插拔规则 2）');
+  const mounts = Array.isArray(opts.mounts) ? opts.mounts : [];
+  if (!rest.enabled && !graphql.enabled && !grpc.enabled && mounts.length === 0) {
+    throw new Error('ERR_NO_SKIN:rest / graphql / grpc 至少启用一项，或提供 mounts（mounts 不计入皮肤判定；spec/00-protocol.md 插拔规则 2 / 规则 7）');
   }
-  return { rest, graphql, grpc };
+  return { rest, graphql, grpc, mounts };
 }
 
 /**
@@ -62,7 +63,8 @@ function activeResources(names) {
 }
 
 /**
- * HTTP 侧装配（幂等）：把 rest / graphql 皮肤挂到一个新的 fastify 实例。
+ * HTTP 侧装配（幂等）：把 rest / graphql 皮肤挂到一个新的 fastify 实例，
+ * 随后逐个执行 `skins.mounts`（spec/00 规则 7：mount 抛错 ⇒ 本次装配失败；reload 保留旧路由）。
  * 每次调用都遍历 `store.list()` 生成路由 → 反映当下注册表（reload 的语义来源）。
  * @returns {Promise<{ app: import('fastify').FastifyInstance, resources: number }>}
  */
@@ -96,6 +98,16 @@ async function assembleHttp(store, skins) {
     });
   }
 
+  // mounts 接缝（spec/00 规则 7）：rest/graphql 装配后、HTTP 就绪前逐个挂载；非函数 fail-fast
+  for (const [i, mount] of skins.mounts.entries()) {
+    if (typeof mount !== 'function') {
+      const err = new Error(`ERR_BAD_MOUNT:mounts[${i}] 须为函数 (app, ctx) => void`);
+      err.code = 'ERR_BAD_MOUNT';
+      throw err;
+    }
+    await mount(app, { store });
+  }
+
   await app.ready();
   const restNames = skins.rest.resources || store.list();
   return { app, resources: activeResources(restNames).length };
@@ -126,6 +138,9 @@ async function _hydrate(store, reloadCfg) {
  * @param {{enabled?: boolean, prefix?: string}} [opts.rest] REST 皮肤（store-api-node）
  * @param {{enabled?: boolean, path?: string}} [opts.graphql] GraphQL 皮肤（store-graphql-node）
  * @param {{enabled?: boolean, host?: string, port?: number}} [opts.grpc] gRPC 皮肤（store-grpc-node）
+ * @param {Array<function(import('fastify').FastifyInstance, {store: object}): (void|Promise<void>)>} [opts.mounts]
+ *   装配期挂载函数（spec/00 规则 7）：rest/graphql 装配后、HTTP 就绪前逐个 await mount(app, { store })；
+ *   mount 抛错 ⇒ 本次装配失败（reload 保留旧路由）；每次 reload 重跑；仅 mounts 无皮肤不构成 ERR_NO_SKIN
  * @param {{tenant: string, env: string}} [opts.reload] reload 前按该 ns 调 `store.restoreDefs`
  *   从持久化定义重建注册表（D1）；缺省不重建（只重跑既有装配）
  */

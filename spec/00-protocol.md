@@ -13,17 +13,23 @@ await serve(store, {
   graphql: { enabled: false, path: '/graphql' /*, ...透传 store-graphql 选项 */ },
   grpc: { enabled: false, host: '127.0.0.1', port: 50051 /*, ...透传 store-grpc 选项 */ },
   reload: { tenant: 't1', env: 'dev' },      // 可选：reload 前按 ns 从持久化定义重建注册表（见下）
+  mounts: [],                                // 可选：装配期挂载函数 [fn(app, ctx)]（规则 7）
 });
 ```
 
 ## 插拔规则
 
 1. **enabled 缺省 false**：零意外监听；不显式 `enabled: true` 的皮肤不实例化、不加载其包。
-2. **全 false ⇒ 配置错误**：三层全部未启用时抛错（`ERR_NO_SKIN:` 前缀），禁止静默起一个空服务。
+2. **全 false 且 mounts 为空 ⇒ 配置错误**：三层全部未启用且无 mounts 时抛错（`ERR_NO_SKIN:` 前缀），禁止静默起一个空服务（仅 mounts 的纯自定义端点服务合法，见规则 7）。
 3. **启用但包缺失 ⇒ 显式报错**：抛 `DEPENDENCY_MISSING`（node）/ `ImportError`（py），message 带安装指引——禁静默降级（no-error-masking）。
 4. **HTTP 组合**：rest 与 graphql 共享 `http` server。路由分配：rest 挂 `prefix`（每模型 `/prefix/{name}` 五路由）；graphql 挂 `path`（GET 文档页 + POST 执行）。两者路径不重叠（皮肤语义决定）。
 5. **gRPC 组合**：独立端口（gRPC 协议天然独立于 HTTP），`host:port` 缺省 `127.0.0.1:50051`。
 6. **选项透传**：各皮肤段内的其余选项（`idField` / `contextProvider` / `resources` / graphql 守卫参数等）原样透传给对应皮肤，gateway 不改写、不设默认（皮肤自有默认生效）。
+7. **mounts 接缝（零语义扩展点）**：`mounts: [(app, ctx) => void]`——rest/graphql 装配后、
+   HTTP 就绪前逐个 `await mount(app, { store })`（py 为 `await mount(app, store)`）。
+   gateway 不感知挂载函数的来源与语义（皮肤层插件如 store-endpoint 经此接入）；
+   mount 抛错 ⇒ 本次装配失败（reload 保留旧路由）。仅 mounts 而无任何皮肤不构成
+   ERR_NO_SKIN（纯自定义端点服务合法）；mounts 重跑于每次 reload（端点随重装配重建）。
 
 ## 返回值
 

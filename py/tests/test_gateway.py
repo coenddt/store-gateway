@@ -8,7 +8,7 @@ import re
 
 import pytest
 
-from store_gateway import build
+from conftest import build_sync as build  # async build 的同步包装（测试不引 pytest-asyncio）
 
 pytest.importorskip("store_api_py")
 pytest.importorskip("store_graphql")

@@ -33,9 +33,11 @@ def _read_skins(opts: dict) -> dict:
     rest = {"enabled": False, **(opts.get("rest") or {})}
     graphql = {"enabled": False, **(opts.get("graphql") or {})}
     grpc = {"enabled": False, **(opts.get("grpc") or {})}
-    if not (rest["enabled"] or graphql["enabled"] or grpc["enabled"]):
-        raise ValueError("ERR_NO_SKIN:rest / graphql / grpc 至少启用一项（spec/00-protocol.md 插拔规则 2）")
-    return {"rest": rest, "graphql": graphql, "grpc": grpc}
+    mounts = list(opts.get("mounts") or [])
+    if not (rest["enabled"] or graphql["enabled"] or grpc["enabled"]) and not mounts:
+        raise ValueError("ERR_NO_SKIN:rest / graphql / grpc 至少启用一项，或提供 mounts"
+                         "（mounts 不计入皮肤判定；spec/00-protocol.md 插拔规则 2 / 规则 7）")
+    return {"rest": rest, "graphql": graphql, "grpc": grpc, "mounts": mounts}
 
 
 def _read_reload(opts: dict) -> dict | None:
@@ -58,10 +60,12 @@ def _active_resources(names: list) -> list:
     return [n for n in names if not (n.endswith("Deleted") and n[: -len("Deleted")] in s)]
 
 
-def _assemble(store: Any, skins: dict) -> tuple[Any, int]:
-    """装配 HTTP 侧（REST + GraphQL）→ `(FastAPI app, 暴露资源数)`。
+async def _assemble(store: Any, skins: dict) -> tuple[Any, int]:
+    """装配 HTTP 侧（REST + GraphQL + mounts）→ `(FastAPI app, 暴露资源数)`。
 
     每次调用都遍历 `store.list()` 生成路由 → 反映当下注册表（reload 的语义来源）。
+    mounts（spec/00 规则 7）：rest/graphql 装配后逐个 await mount(app, store)；
+    mount 抛错 ⇒ 本次装配失败（reload 保留旧 app）；每次 reload 重跑。
     """
     fastapi = _optional_import("fastapi", "fastapi")
     app = fastapi.FastAPI(title="store-gateway")
@@ -82,6 +86,14 @@ def _assemble(store: Any, skins: dict) -> tuple[Any, int]:
         if inspect.iscoroutinefunction(mod.create_app):
             raise TypeError("store_graphql.create_app 不应为 async")
         app.mount("/", mod.create_app(store, path=gql_path, **gql_cfg))
+
+    # mounts 接缝（spec/00 规则 7）：rest/graphql 装配后逐个挂载；非可调用 fail-fast
+    for i, mount in enumerate(skins.get("mounts") or []):
+        if not callable(mount):
+            raise TypeError(f"ERR_BAD_MOUNT:mounts[{i}] 须为可调用对象 (app, store)")
+        res = mount(app, store)
+        if inspect.isawaitable(res):
+            await res
 
     names = skins["rest"].get("resources") or store.list()
     return app, len(_active_resources(names))
@@ -164,7 +176,7 @@ class Gateway:
         """原子重装配：先在锁内 hydrate（失败同样不半替换），构建成功才替换在途 app。"""
         async with self._reload_lock:
             await _hydrate(self._store, self._reload_cfg)
-            app, resources = _assemble(self._store, self._skins)  # 失败向上抛（调用方映射 500）
+            app, resources = await _assemble(self._store, self._skins)  # 失败向上抛（调用方映射 500）
             self._state["app"] = app
             return resources
 
@@ -173,18 +185,20 @@ class Gateway:
             self.grpc.stop(None)
 
 
-def build(store: Any, **opts: Any) -> Gateway:
-    """spec/00：读配置 → 组合三皮肤 → Gateway。
+async def build(store: Any, **opts: Any) -> Gateway:
+    """spec/00：读配置 → 组合三皮肤 → Gateway（async：装配期逐个 await mounts）。
 
     - rest: { enabled, prefix='/api', **store-api-py 选项 }
     - graphql: { enabled, path='/graphql', **store-graphql-py 选项 }
     - grpc: { enabled, host='127.0.0.1', port=50051, **store-grpc-py 选项 }
+    - mounts: [(app, store) => None]（可选；装配期挂载函数，spec/00 规则 7——
+      rest/graphql 装配后逐个 await，mount 抛错 ⇒ build/reload 失败；仅 mounts 无皮肤合法）
     - reload: { tenant, env }（可选；reload 前按 ns 调 store.restore_defs 重建注册表）
     """
     skins = _read_skins(opts)
     reload_cfg = _read_reload(opts)
 
-    app, _ = _assemble(store, skins)
+    app, _ = await _assemble(store, skins)
     state = {"app": app}
 
     grpc_handle = None
