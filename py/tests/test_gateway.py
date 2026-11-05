@@ -134,9 +134,9 @@ def test_all_three_skins():
         r = client.post("/api/User", json={"name": "alice", "age": 30})
         assert r.status_code == 201, r.text
         # GraphQL：读回（自定义 path）
-        r = client.post("/gql", json={"query": "{ list_User { name age } }"})
+        r = client.post("/gql", json={"query": "{ listUser { name age } }"})
         assert r.status_code == 200, r.text
-        assert r.json()["data"]["list_User"] == [{"name": "alice", "age": 30}]
+        assert r.json()["data"]["listUser"] == [{"name": "alice", "age": 30}]
 
         # gRPC：ListUser 读回同一份数据（同一 store 实例）
         pb = gw.grpc.pb
