@@ -1,91 +1,95 @@
 # store-gateway
 
-**One config object that assembles the three common-store API skins — REST, GraphQL and gRPC — from a single call, with per-skin switches and a hot re-assembly endpoint.**
+**一份配置对象，一次 `serve()` 调用，装配出 common-store 的三层协议面——REST、GraphQL、gRPC。每层有独立开关，HTTP 侧可热重装配。给同时维护多种协议面的服务端团队用。**
 
-> Chinese docs: [README.zh-CN.md](./README.zh-CN.md)
+> English: [README.en.md](./README.en.md)
 
 ![npm](https://img.shields.io/npm/v/store-gateway-node.svg)
 ![PyPI](https://img.shields.io/pypi/v/store-gateway-py.svg)
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 ![runtime](https://img.shields.io/badge/node%20%3E%3D18%20%7C%20python%20%3E%3D3.10-lightgrey.svg)
 
-- **One assembly, three surfaces.** REST and GraphQL share one HTTP server; gRPC gets its own listener.
-- **Off by default.** A skin is loaded only when its section says `enabled: true`.
-- **Reload without restart.** `POST /-/reload` rebuilds the HTTP side and swaps the handler atomically.
+- **一次装配，三种面。** REST 与 GraphQL 共用一个 HTTP server；gRPC 单独监听。
+- **默认关闭。** 只有配置段写了 `enabled: true` 的皮肤才会被加载。
+- **不重启就换装。** `POST /-/reload` 重建 HTTP 侧，原子替换在途 handler。
 
-## Imagine three deploy scripts for one schema
+## 周二早上，三份部署脚本
 
-Picture a Tuesday morning on a team that exposes the same `User` schema over three protocols. The REST process has its own `rest.config.js`, its own port and its own copy of the model allow-list. The GraphQL process has a second config, a second bootstrap and a second copy of that list. The gRPC process has a third. Each starts the same host store, registers the same schemas, and then mounts exactly one skin.
+一个团队要把同一份 `User` schema 暴露在三种协议上。REST 进程有自己的 `rest.config.js`、自己的端口、自己的一份模型白名单。GraphQL 进程有第二份配置、第二套引导、第二份白名单。gRPC 进程有第三份。
 
-Nothing is broken, so nobody schedules a fix. But every new model is three edits and three restarts. The three allow-lists drift, and the drift is invisible: `GET /api/User` returns 404 on REST while the GraphQL process happily serves `listUser`. The cost is not latency — it is the number of places that must agree, and the fact that nothing enforces the agreement.
+三个进程各自启动同一个宿主 store，注册同一批 schema，然后只挂一种皮。
 
-`store-gateway` replaces those three boot files with one object, one `serve()` call, and one place where exposure policy is declared. It does not merge the skins' semantics; it only decides which of them exist in this process.
+这不算坏，所以没人排期修。但每加一个模型就是三处改动、三次重启。三份白名单开始漂移，而漂移是不可见的：`GET /api/User` 在 REST 上返回 404，GraphQL 进程却高高兴兴地服务 `listUser`。成本不在延迟，而在于「必须保持一致的地方」有几个，以及没有任何东西强制执行这种一致。
 
-## What it actually does
+`store-gateway` 用一份对象、一次 `serve()` 调用、一处暴露策略声明，替掉那三个启动文件。它不合并各层皮肤的语义，只决定这个进程里哪几层存在。
 
-The gateway is the assembly point of the skin layer. It reads config, instantiates the enabled skins, and mounts them on their transports. It has no routes of its own beyond the reload endpoint.
+## 它到底做什么
 
-| Concern | Handled by the gateway | Handled by the skin |
+gateway 是皮肤层的装配点。它读配置、实例化已启用的皮肤、把它们挂到各自的承载上。除了 reload 端点，它自己没有路由。
+
+| 事项 | 由 gateway 负责 | 由皮肤负责 |
 |---|---|---|
-| Which skins exist in this process | ✅ `rest` / `graphql` / `grpc` enable switches | — |
-| Listener and port allocation | ✅ shared `http`, separate `grpc` | — |
-| REST path prefix, GraphQL endpoint path | ✅ forwarded as skin options | ✅ applies its own routing |
-| Model exposure, archived-table filtering | — | ✅ each skin applies its own `resources` |
-| Context, permissions, validation | — | ✅ `contextProvider` / guards per skin |
-| Runtime re-assembly | ✅ `POST /-/reload` | — |
-| Custom endpoints outside the three skins | ✅ `mounts` seam, no semantics added | — |
+| 这个进程里有哪些皮肤 | ✅ `rest` / `graphql` / `grpc` 开关 | — |
+| 监听器与端口分配 | ✅ 共享 `http`，独立 `grpc` | — |
+| REST 路径前缀、GraphQL 端点路径 | ✅ 作为皮肤选项转发 | ✅ 应用自己的路由 |
+| 模型暴露、归档表过滤 | — | ✅ 各皮肤应用自己的 `resources` |
+| 上下文、权限、校验 | — | ✅ 各皮肤的 `contextProvider` / 守卫 |
+| 运行期重装配 | ✅ `POST /-/reload` | — |
+| 三层皮肤之外的定制端点 | ✅ `mounts` 接缝，不新增语义 | — |
 
-## Key mechanics
+## 关键机制
 
-### One assembly, two transports
+### 一次装配，两种承载
 
-REST and GraphQL are both HTTP, so they are mounted on **one** Fastify instance (Node) or **one** FastAPI app (Python). They are separated by path only: REST under `rest.prefix`, GraphQL at `graphql.path`. gRPC cannot share that listener, so it gets an independent server on `grpc.host:grpc.port`. The return value reflects this shape: `gw.http.url` plus `gw.grpc.port` (or `null` when the gRPC skin is off).
+REST 与 GraphQL 都是 HTTP，所以挂在**同一个** Fastify 实例（Node）或**同一个** FastAPI 应用（Python）上。二者只靠路径区分：REST 在 `rest.prefix` 下，GraphQL 在 `graphql.path`。
 
-Per-skin options are passed through untouched. `idField`, `resources`, `contextProvider` / `context_provider`, GraphQL guards — the gateway neither rewrites them nor supplies defaults. Each skin's own spec remains the single source of truth.
+gRPC 无法共享这个监听器，因此拿到独立的 `grpc.host:grpc.port`。返回值如实反映这个形状：`gw.http.url` 加 `gw.grpc.port`（gRPC 关闭时为 `null`）。
 
-### Switches default to false
+逐皮肤选项原样透传。`idField`、`resources`、`contextProvider` / `context_provider`、GraphQL 守卫——gateway 既不重写也不补默认值。每层皮肤自己的 spec 仍是唯一事实源。
 
-Every skin starts disabled. Enabling one is an explicit act:
+### 开关默认为 false
 
-- `enabled` absent or `false` ⇒ the skin is not instantiated and its package is not imported.
-- An enabled skin whose package cannot be imported fails at construction — `DEPENDENCY_MISSING` on Node (with the install command in the message), an `ImportError` naming the module on Python.
-- All three disabled and no `mounts` ⇒ construction fails with `ERR_NO_SKIN`. A process that is "up" but serves nothing is treated as a configuration bug, not a valid state.
+每层皮肤初始都是关闭的。启用是一个显式动作：
 
-This is fail-fast by design: misconfiguration surfaces before the first request, not as an empty route table in production.
+- `enabled` 缺失或为 `false` ⇒ 皮肤不实例化，其包也不被导入。
+- 启用了但包导入失败 ⇒ 构造期直接失败：Node 抛 `DEPENDENCY_MISSING`（消息里带安装命令），Python 抛 `ImportError` 并点名缺失模块。
+- 三层全关且没有 `mounts` ⇒ 构造失败，`ERR_NO_SKIN`。一个「起来了但什么都不服务」的进程被视为配置错误，不是合法状态。
 
-### Reload builds first, swaps second
+这是刻意的 fail-fast：配置错误在第一个请求之前暴露，而不是在生产环境表现为一张空路由表。
 
-`POST /-/reload` is answered by the gateway itself, outside the in-flight handler, so it keeps working even if the current snapshot is busy.
+### reload 先构建，后替换
 
-1. If `reload: { tenant, env }` is configured, the gateway first calls `store.restoreDefs({ tenant, env })` (Node) or `store.restore_defs` / `restoreDefs` (Python) to rebuild the registry from persisted definitions.
-2. A complete new HTTP handler is built from the current registry.
-3. Only on success is the in-flight handler replaced. On failure the old routes stay and the endpoint returns `500` with `ERR_RELOAD_FAILED` or the underlying code.
-4. Concurrent reloads queue behind a mutex; later callers wait.
+`POST /-/reload` 由 gateway 自己承接，不进入在途 handler，所以即使当前快照正忙它也照常工作。
 
-The response reports the work done:
+1. 若配置了 `reload: { tenant, env }`，先调 `store.restoreDefs({ tenant, env })`（Node）或 `store.restore_defs` / `restoreDefs`（Python），从持久化定义重建注册表。
+2. 用当前注册表构建一份完整的新 HTTP handler。
+3. 只有构建成功才替换在途 handler。失败则保留旧路由，端点返回 `500`，code 为 `ERR_RELOAD_FAILED` 或底层错误码。
+4. 并发 reload 在互斥锁上排队，后到者等待。
+
+响应如实报告这次干了什么：
 
 ```json
 { "data": { "reloaded": true, "resources": 2 } }
 ```
 
-`resources` counts exposed resources after re-assembly, excluding archived `XxxDeleted` tables when `Xxx` is present. gRPC is outside reload scope — it is an independent server, so changing it requires a fresh `serve()` / `build()`.
+`resources` 是重装配后暴露的资源数；当 `Xxx` 存在时，归档表 `XxxDeleted` 不计入。gRPC 不在 reload 范围内——它是独立 server，改它需要重新 `serve()` / `build()`。
 
-### Zero business semantics, one assembly seam
+### 零业务语义，一个装配接缝
 
-The gateway adds no routes, rewrites no payloads, invents no shared context, and makes no authorization decisions. Its only extension point is `mounts`: a list of functions called after the skins are mounted and before HTTP is ready.
+gateway 不加路由、不改写载荷、不发明共享上下文、不做鉴权裁决。它唯一的扩展点是 `mounts`：一组函数，在皮肤挂载之后、HTTP 就绪之前依次执行。
 
 ```js
 mounts: [(app, ctx) => { app.get('/health', async () => ({ data: 'ok' })); }]
 ```
 
-On Node the signature is `(app, ctx)` with `ctx = { store }`; on Python it is `(app, store)` and may be async. Mounts run on every reload, so endpoints are rebuilt with the assembly. A throwing mount fails the assembly; `mounts` alone — with no skin enabled — is a legal custom-endpoint service and does not trigger `ERR_NO_SKIN`.
+Node 的签名是 `(app, ctx)`，`ctx = { store }`；Python 是 `(app, store)`，可以是 async。每次 reload 都会重跑 mounts，所以这些端点随装配一起重建。mount 抛错会让本次装配失败。只有 `mounts`、不启用任何皮肤，是一个合法的自定义端点服务，不触发 `ERR_NO_SKIN`。
 
-## Run it
+## 跑起来
 
-| Runtime | Package | Version | Entry point |
+| 运行时 | 包 | 版本 | 入口 |
 |---|---|---|---|
 | Node.js ≥ 18 | `store-gateway-node` | 0.2.2 | `require('store-gateway-node').serve` |
-| Python ≥ 3.10 | `store-gateway-py` | 0.2.2 | `from store_gateway import build` (async) |
+| Python ≥ 3.10 | `store-gateway-py` | 0.2.2 | `from store_gateway import build`（async） |
 
 ```bash
 npm install store-gateway-node
@@ -95,11 +99,11 @@ npm install store-gateway-node
 pip install "store-gateway-py[rest,graphql,grpc]"
 ```
 
-The Python extras map one-to-one to `store-api-py`, `store-graphql-py` and `store-grpc-py`; install only the extras you enable. On Node the skin packages are declared as dependencies and as optional peers, but they are `require`d lazily — an unused skin is never loaded.
+Python 的 extras 与 `store-api-py`、`store-graphql-py`、`store-grpc-py` 一一对应，只装你要启用的。Node 侧皮肤包声明为依赖兼 optional peer，但都是惰性 `require`——没用到的皮肤从不加载。
 
 ### Node.js
 
-The snippet below is self-contained: the embedded `local` store needs no database.
+下面这段是自包含的：内嵌的 `local` store 不需要数据库。
 
 ```javascript
 const { init, local, store } = require('nodejs-store');
@@ -113,21 +117,21 @@ store.register({
 });
 
 const gw = await serve(store, {
-  http: { host: '127.0.0.1', port: 3000 },       // REST + GraphQL share this server
-  rest: { enabled: true, prefix: '/api' },        // needs store-api-node
-  graphql: { enabled: true, path: '/graphql' },   // needs store-graphql-node
-  grpc: { enabled: true, port: 50051 },           // needs store-grpc-node, own port
+  http: { host: '127.0.0.1', port: 3000 },       // REST + GraphQL 共享此 server
+  rest: { enabled: true, prefix: '/api' },        // 需要 store-api-node
+  graphql: { enabled: true, path: '/graphql' },   // 需要 store-graphql-node
+  grpc: { enabled: true, port: 50051 },           // 需要 store-grpc-node，独立端口
 });
 
 console.log(gw.http.url);   // http://127.0.0.1:3000
 console.log(gw.grpc.port);  // 50051
 
-await gw.close();           // HTTP + gRPC + current app
+await gw.close();           // HTTP + gRPC + 当前 app
 ```
 
 ### Python
 
-`build()` is a coroutine; `gw.run()` blocks on uvicorn for the HTTP side, while the gRPC server is already started inside `build()`.
+`build()` 是协程。`gw.run()` 用 uvicorn 阻塞承载 HTTP；gRPC server 在 `build()` 内部已经启动。
 
 ```python
 import asyncio
@@ -155,7 +159,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### Same schema, three calls
+### 同一份 schema，三次调用
 
 ```bash
 curl http://127.0.0.1:3000/api/User
@@ -167,63 +171,65 @@ curl -X POST http://127.0.0.1:3000/graphql \
 curl -X POST http://127.0.0.1:3000/-/reload
 ```
 
-### Configuration reference
+### 配置参考
 
-Both runtimes accept the same shape. Unknown top-level keys are ignored; unknown keys inside a skin section are forwarded to that skin.
+两个运行时接受同一形状。不认识的顶层键被忽略；皮肤段内不认识的键转发给该皮肤。
 
-| Key | Default | Meaning |
+| 键 | 缺省 | 含义 |
 |---|---|---|
-| `http.host` | `127.0.0.1` | Host for the shared HTTP server. |
-| `http.port` | `3000` | Port for the shared server. `0` asks the OS for a free port; the real value is in `gw.http.url`. |
-| `rest.enabled` | `false` | Mount the REST skin. |
-| `rest.prefix` | root on Node; `/api` on the Python gateway | Base path; each model gets `/prefix/{name}`. |
-| `graphql.enabled` | `false` | Mount the GraphQL skin. |
-| `graphql.path` | `/graphql` | `GET` serves the documentation page, `POST` executes queries. |
-| `grpc.enabled` | `false` | Mount the gRPC skin. |
-| `grpc.host` | `127.0.0.1` | Host for the independent gRPC server. |
-| `grpc.port` | `50051` | Port for the gRPC server; `0` is OS-assigned. |
-| `mounts` | `[]` | Assembly-time mount functions; run after skins, before HTTP ready, again on every reload. |
-| `reload.tenant` / `reload.env` | — | If `reload` is set, both are required; registry is rebuilt for this namespace before each re-assembly. |
-| other skin keys | — | Passed through verbatim: `idField`, `resources`, `contextProvider`, GraphQL guards, etc. |
+| `http.host` | `127.0.0.1` | 共享 HTTP server 的主机。 |
+| `http.port` | `3000` | 共享 server 的端口。`0` 让 OS 分配，真实值在 `gw.http.url`。 |
+| `rest.enabled` | `false` | 是否挂载 REST 皮肤。 |
+| `rest.prefix` | Node 为根；Python gateway 为 `/api` | 基础路径；每模型挂在 `/prefix/{name}`。 |
+| `graphql.enabled` | `false` | 是否挂载 GraphQL 皮肤。 |
+| `graphql.path` | `/graphql` | `GET` 提供文档页，`POST` 执行查询。 |
+| `grpc.enabled` | `false` | 是否挂载 gRPC 皮肤。 |
+| `grpc.host` | `127.0.0.1` | 独立 gRPC server 的主机。 |
+| `grpc.port` | `50051` | gRPC 端口；`0` 由 OS 分配。 |
+| `mounts` | `[]` | 装配期挂载函数；皮肤之后、HTTP 就绪之前运行，每次 reload 重跑。 |
+| `reload.tenant` / `reload.env` | — | 设置 `reload` 后两者必填；每次重装配前按该命名空间重建注册表。 |
+| 其余皮肤键 | — | 原样透传：`idField`、`resources`、`contextProvider`、GraphQL 守卫等。 |
 
-## Boundaries: when not to use it
+## 边界：什么时候不要用它
 
-- **You only need one protocol.** Use `store-api`, `store-graphql` or `store-grpc` directly; the gateway adds a layer without adding capability.
-- **You need business logic, validation or authorization decisions in the API layer.** The gateway composes; each skin owns its own context and permissions. There is no place here to invent policy.
-- **You need the MCP skin.** The gateway mounts REST, GraphQL and gRPC only; `store-mcp` stands alone.
-- **You need runtime route registration inside a skin.** Skins are assembly-time snapshots. A schema registered later appears only after a full `POST /-/reload`.
-- **You expect gRPC to be hot-reloadable.** It is an independent server and is deliberately out of reload scope.
-- **You want REST and GraphQL on different ports.** They share the `http` server and are separated by path only; keep `rest.prefix` and `graphql.path` distinct.
+- **只需要一种协议。** 直接用 `store-api`、`store-graphql` 或 `store-grpc`。gateway 只多一层，不多一份能力。
+- **需要在 API 层写业务逻辑、校验或鉴权裁决。** gateway 只做组合，上下文与权限归各皮肤。这里没有地方发明策略。
+- **需要 MCP 皮肤。** gateway 只挂 REST、GraphQL、gRPC；`store-mcp` 独立使用。
+- **需要在皮肤内做运行期路由注册。** 皮肤是装配期快照。后注册的 schema 要等一次完整的 `POST /-/reload` 才出现。
+- **指望 gRPC 可热重载。** 它是独立 server，被刻意排除在 reload 之外。
+- **想让 REST 与 GraphQL 用不同端口。** 它们共享 `http` server，只靠路径区分，所以 `rest.prefix` 与 `graphql.path` 必须错开。
 
-## Where it sits in the family
+## 在家族里的位置
 
-It is the assembly layer directly above the skin layer: hosts provide the `store`, skins provide protocol semantics, and the gateway decides which skins this process exposes.
+它是紧贴皮肤层之上的装配层：宿主提供 `store`，皮肤提供协议语义，gateway 决定这个进程对外暴露哪几层。
 
-| Project | Role |
+| 项目 | 角色 |
 |---|---|
-| [`rust-store`](https://github.com/coenddt/rust-store) | Shared engine (`rust-store-core`) and language bindings. |
-| [`nodejs-store`](https://github.com/coenddt/nodejs-store) | Node.js host providing the `store` instance. |
-| [`py-store`](https://github.com/coenddt/py-store) | Python host (`storepy`, import `py_store`). |
-| [`store-api`](https://github.com/coenddt/store-api) | REST skin. |
-| [`store-graphql`](https://github.com/coenddt/store-graphql) | GraphQL skin. |
-| [`store-grpc`](https://github.com/coenddt/store-grpc) | gRPC skin. |
-| [`store-mcp`](https://github.com/coenddt/store-mcp) | MCP skin, not combined here. |
-| [`meta-store`](https://github.com/coenddt/meta-store) | Definition control plane; its output becomes visible through one reload. |
+| [`rust-store`](https://github.com/coenddt/rust-store) | 共享引擎（`rust-store-core`）与各语言绑定。 |
+| [`nodejs-store`](https://github.com/coenddt/nodejs-store) | Node.js 宿主，提供 `store` 实例。 |
+| [`py-store`](https://github.com/coenddt/py-store) | Python 宿主（`storepy`，import `py_store`）。 |
+| [`store-api`](https://github.com/coenddt/store-api) | REST 皮肤。 |
+| [`store-graphql`](https://github.com/coenddt/store-graphql) | GraphQL 皮肤。 |
+| [`store-grpc`](https://github.com/coenddt/store-grpc) | gRPC 皮肤。 |
+| [`store-mcp`](https://github.com/coenddt/store-mcp) | MCP 皮肤，不在此组合内。 |
+| [`meta-store`](https://github.com/coenddt/meta-store) | 定义控制面；它的产物经一次 reload 变得可见。 |
 
-## One diagram
+## 一图看懂
 
 ```mermaid
 flowchart LR
-  cfg[one config object] --> gw[store gateway]
-  store[host store registry] --> gw
-  gw --> http[shared HTTP server]
+  cfg[一份配置对象] --> gw[store gateway]
+  store[宿主 store 注册表] --> gw
+  gw --> http[共享 HTTP server]
   gw --> grpc[gRPC server]
-  http --> rest[REST skin]
-  http --> gql[GraphQL skin]
-  grpc --> g[gRPC skin]
-  rest --> data[data sources]
+  http --> rest[REST 皮肤]
+  http --> gql[GraphQL 皮肤]
+  grpc --> g[gRPC 皮肤]
+  rest --> data[数据源]
   gql --> data
   g --> data
 ```
 
-License: MIT — see [LICENSE](./LICENSE).
+三句话：一份配置决定哪几层存在；REST 与 GraphQL 共用端口靠路径分开；改 HTTP 侧只需一次 reload，gRPC 得重新装配。
+
+License: MIT —— 见 [LICENSE](./LICENSE)。
