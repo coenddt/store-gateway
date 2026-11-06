@@ -2,7 +2,7 @@
 
 **One config object that assembles the three common-store API skins — REST, GraphQL and gRPC — from a single call, with per-skin switches and a hot re-assembly endpoint.**
 
-> 中文说明：[README.zh-CN.md](./README.zh-CN.md)
+> Chinese docs: [README.zh-CN.md](./README.zh-CN.md)
 
 ![npm](https://img.shields.io/npm/v/store-gateway-node.svg)
 ![PyPI](https://img.shields.io/pypi/v/store-gateway-py.svg)
@@ -84,8 +84,8 @@ On Node the signature is `(app, ctx)` with `ctx = { store }`; on Python it is `(
 
 | Runtime | Package | Version | Entry point |
 |---|---|---|---|
-| Node.js ≥ 18 | `store-gateway-node` | 0.2.1 | `require('store-gateway-node').serve` |
-| Python ≥ 3.10 | `store-gateway-py` | 0.2.1 | `from store_gateway import build` (async) |
+| Node.js ≥ 18 | `store-gateway-node` | 0.2.2 | `require('store-gateway-node').serve` |
+| Python ≥ 3.10 | `store-gateway-py` | 0.2.2 | `from store_gateway import build` (async) |
 
 ```bash
 npm install store-gateway-node
