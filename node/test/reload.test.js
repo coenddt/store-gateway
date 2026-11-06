@@ -30,6 +30,10 @@ function makeMockStore() {
     async insert() { return {}; },
     async update() { return {}; },
     async remove() { return 0; },
+    // store-api-node >= 0.6 的请求级降级容器契约：返回 { result, status }
+    async withDegradedScope(fn) {
+      return { result: await fn(), status: {} };
+    },
     async setContext() {},
   };
   return store;

@@ -51,6 +51,10 @@ function makeMockStore() {
       if (i >= 0) rows.splice(i, 1);
       return i >= 0 ? 1 : 0;
     },
+    // store-api-node >= 0.6 的请求级降级容器契约：返回 { result, status }
+    async withDegradedScope(fn) {
+      return { result: await fn(), status: {} };
+    },
     async setContext() {},
   };
 }
@@ -115,10 +119,11 @@ test('三开：REST + GraphQL + gRPC 同进程并存（spec/00 规则 4/5）', a
     const gql = await fetch(`${gw.http.url}/gql`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query: '{ list_User { name age } }' }),
+      body: JSON.stringify({ query: '{ listUser { name age } }' }),
     });
     const gqlBody = await gql.json();
-    assert.deepEqual(gqlBody.data.list_User, [{ name: 'alice', age: 30 }]);
+    assert.equal(gqlBody.errors, undefined, JSON.stringify(gqlBody.errors));
+    assert.deepEqual(gqlBody.data.listUser, [{ name: 'alice', age: 30 }]);
 
     // gRPC：ListUser 读回同一份数据（同一 store 实例）
     // grpc-js / protobufjs 是 store-grpc-node 的依赖（file: 链下装在其自身 node_modules，按其路径解析）
