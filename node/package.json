@@ -31,15 +31,15 @@
   },
   "dependencies": {
     "fastify": "^5.0.0",
-    "store-api-node": "^0.4.0",
-    "store-grpc-node": "^0.2.0",
-    "store-graphql-node": "^0.3.0"
+    "store-api-node": "^0.6.3",
+    "store-grpc-node": "^0.2.5",
+    "store-graphql-node": "^0.6.2"
   },
   "peerDependencies": {
-    "nodejs-store": ">=1.0.0",
-    "store-api-node": ">=0.1.0",
-    "store-grpc-node": ">=0.1.0",
-    "store-graphql-node": ">=0.1.0"
+    "nodejs-store": ">=5.1.3",
+    "store-api-node": ">=0.6.3",
+    "store-grpc-node": ">=0.2.5",
+    "store-graphql-node": ">=0.6.2"
   },
   "peerDependenciesMeta": {
     "nodejs-store": {

@@ -131,7 +131,7 @@ await gw.close();           // HTTP + gRPC + 当前 app
 
 ### Python
 
-`build()` 是协程。`gw.run()` 用 uvicorn 阻塞承载 HTTP；gRPC server 在 `build()` 内部已经启动。
+`build()` 是协程。在事件循环内必须 `await gw.serve()`（内部 `uvicorn.Server.serve`）；在协程外才可用阻塞的 `gw.run()`。gRPC server 在 `build()` 内部已经启动。
 
 ```python
 import asyncio
@@ -153,7 +153,7 @@ async def main():
         graphql={'enabled': True, 'path': '/graphql'},
         grpc={'enabled': True, 'port': 50051},
     )
-    gw.run('127.0.0.1', 3000)
+    await gw.serve('127.0.0.1', 3000)
 
 
 asyncio.run(main())

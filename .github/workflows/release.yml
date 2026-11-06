@@ -59,26 +59,47 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
+      # 与 ci.yml 的 py job 同布局：py 测试以同级源码路径注入三皮肤，必须先把它们 checkout 成同级目录
       - uses: actions/checkout@v4
+        with:
+          path: store-gateway
+      - uses: actions/checkout@v4
+        with:
+          repository: coenddt/store-api
+          path: store-api
+      - uses: actions/checkout@v4
+        with:
+          repository: coenddt/store-graphql
+          path: store-graphql
+      - uses: actions/checkout@v4
+        with:
+          repository: coenddt/store-grpc
+          path: store-grpc
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Test
+        run: |
+          pip install pytest httpx fastapi uvicorn graphql-core grpcio grpcio-tools
+          pip install -e store-gateway/py
+          python -m pytest -q
+        working-directory: store-gateway/py
       - name: Check tag matches package version
         run: |
-          PKG=$(python -c "import tomllib; print(tomllib.load(open('py/pyproject.toml','rb'))['project']['version'])")
+          PKG=$(python -c "import tomllib; print(tomllib.load(open('store-gateway/py/pyproject.toml','rb'))['project']['version'])")
           TAG=${GITHUB_REF_NAME#v}
           if [ "$PKG" != "$TAG" ]; then
             echo "tag $GITHUB_REF_NAME 与 pyproject version $PKG 不一致" >&2
             exit 1
           fi
       - name: Build
-        run: pip install build && python -m build --outdir py/dist py
+        run: pip install build && python -m build --outdir store-gateway/py/dist store-gateway/py
       - name: Twine check
-        run: pip install twine && twine check py/dist/*
+        run: pip install twine && twine check store-gateway/py/dist/*
       - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: py/dist
+          packages-dir: store-gateway/py/dist
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
           attestations: false # 无 OIDC(id-token),不做 PEP 740 证明

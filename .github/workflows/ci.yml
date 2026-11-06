@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  node:
+    name: node（三皮肤装配 / 路由 / 降级容器）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      # 冒烟：REST/GraphQL/gRPC 三皮肤装配与路由（mock store，无需外部服务）
+      - run: npm test
+
+  py:
+    name: python（三皮肤装配 / 路由）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: store-gateway
+      # py/tests/conftest.py 以同级源码路径注入三皮肤（../store-api/py/src 等），
+      # 故必须把三个皮肤仓 checkout 成同级目录（镜像默认分支）。
+      - uses: actions/checkout@v4
+        with:
+          repository: coenddt/store-api
+          path: store-api
+      - uses: actions/checkout@v4
+        with:
+          repository: coenddt/store-graphql
+          path: store-graphql
+      - uses: actions/checkout@v4
+        with:
+          repository: coenddt/store-grpc
+          path: store-grpc
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # 皮肤包的三方依赖（fastapi / graphql-core / grpcio）显式安装：
+      # 皮肤仓不做 editable 安装（其 pyproject 引用包外 README），由 conftest 注入 src。
+      - run: pip install pytest httpx fastapi uvicorn graphql-core grpcio grpcio-tools
+      - run: pip install -e store-gateway/py
+      - run: python -m pytest -q
+        working-directory: store-gateway/py

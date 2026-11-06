@@ -127,7 +127,7 @@ await gw.close();           // HTTP + gRPC + current app
 
 ### Python
 
-`build()` is a coroutine; `gw.run()` blocks on uvicorn for the HTTP side, while the gRPC server is already started inside `build()`.
+`build()` is a coroutine. Inside an event loop you must `await gw.serve()` (wraps `uvicorn.Server.serve`); only outside a loop may you use the blocking `gw.run()`. The gRPC server is already started inside `build()`.
 
 ```python
 import asyncio
@@ -149,7 +149,7 @@ async def main():
         graphql={'enabled': True, 'path': '/graphql'},
         grpc={'enabled': True, 'port': 50051},
     )
-    gw.run('127.0.0.1', 3000)
+    await gw.serve('127.0.0.1', 3000)
 
 
 asyncio.run(main())
