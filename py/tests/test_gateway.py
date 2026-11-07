@@ -228,3 +228,47 @@ def test_reload_missing_ns_raises():
     store = make_mock_store()
     with pytest.raises(ValueError, match="ERR_RELOAD_CONFIG"):
         build(store, rest={"enabled": True}, reload={"tenant": "t1"})
+
+
+# ─── 装配后语义（对齐 node test E1/E2） ───────────────────────────────
+
+
+def test_e1_listuser_naming_and_limit_code():
+    """listUser 命名与 limit 超限的 extensions.code（装配后）。"""
+    store = make_mock_store()
+    gw = build(store, graphql={"enabled": True, "path": "/gql"})
+    try:
+        client = TestClient(gw.app)
+        ok = client.post("/gql", json={"query": "{ listUser { name age } }"}).json()
+        assert "errors" not in ok, ok
+        assert ok["data"]["listUser"] == []
+        over = client.post("/gql", json={"query": "{ listUser(limit: 5001) { name } }"}).json()
+        assert over["errors"][0]["extensions"]["code"] == "LIMIT", over
+    finally:
+        if gw.grpc is not None:
+            gw.stop()
+
+
+def test_e2_permission_403_both_skins():
+    """权限错误在 REST / GraphQL 装配后均为 403（FORBIDDEN）。"""
+    store = make_mock_store()
+
+    async def deny(gql, params=None):
+        raise PermissionErrorMock("ERR_PERMISSION:无访问权限: User")
+
+    store.query = deny
+    gw = build(
+        store,
+        rest={"enabled": True, "prefix": "/api"},
+        graphql={"enabled": True, "path": "/gql"},
+    )
+    try:
+        client = TestClient(gw.app)
+        rest = client.get("/api/User")
+        assert rest.status_code == 403, rest.text
+        gql = client.post("/gql", json={"query": "{ listUser { name } }"})
+        assert gql.status_code == 403, gql.text
+        assert gql.json()["errors"][0]["extensions"]["code"] == "FORBIDDEN", gql.text
+    finally:
+        if gw.grpc is not None:
+            gw.stop()

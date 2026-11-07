@@ -157,3 +157,46 @@ test('三开：REST + GraphQL + gRPC 同进程并存（spec/00 规则 4/5）', a
     await gw.close();
   }
 });
+
+test('E1：GraphQL listUser 命名与 ERR_LIMIT extensions.code（装配后）', async () => {
+  const store = makeMockStore();
+  const gw = await serve(store, { http: { port: 0 }, graphql: { enabled: true, path: '/gql' } });
+  try {
+    const post = (query) => fetch(`${gw.http.url}/gql`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query }),
+    }).then((r) => r.json());
+    const ok = await post('{ listUser { name age } }');
+    assert.equal(ok.errors, undefined, JSON.stringify(ok.errors));
+    assert.deepEqual(ok.data.listUser, []);
+    const over = await post('{ listUser(limit: 5001) { name } }');
+    assert.equal(over.errors[0].extensions.code, 'LIMIT', JSON.stringify(over.errors));
+  } finally {
+    await gw.close();
+  }
+});
+
+test('E2：权限错误在 REST / GraphQL 装配后均为 403', async () => {
+  const store = makeMockStore();
+  store.query = async () => { throw new store.PermissionError('ERR_PERMISSION:无访问权限: User') };
+  const gw = await serve(store, {
+    http: { port: 0 },
+    rest: { enabled: true, prefix: '/api' },
+    graphql: { enabled: true, path: '/gql' },
+  });
+  try {
+    const gql = await fetch(`${gw.http.url}/gql`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: '{ listUser { name } }' }),
+    });
+    const gqlBody = await gql.json();
+    assert.equal(gql.status, 403, JSON.stringify(gqlBody));
+    assert.equal(gqlBody.errors[0].extensions.code, 'FORBIDDEN');
+    const rest = await fetch(`${gw.http.url}/api/User`);
+    assert.equal(rest.status, 403, await rest.text());
+  } finally {
+    await gw.close();
+  }
+});
