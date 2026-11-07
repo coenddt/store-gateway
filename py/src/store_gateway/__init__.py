@@ -172,6 +172,18 @@ class Gateway:
 
         uvicorn.run(self.app, host=host, port=port, log_level="warning")
 
+    async def serve(self, host: str = "127.0.0.1", port: int = 3000) -> None:
+        """协程内承载 HTTP（`uvicorn.Server.serve`）。
+
+        `build()` 是协程，调用方通常已在事件循环内（`asyncio.run(main())`）；
+        此时不能再调阻塞的 `run()`（内部 `uvicorn.run` ⇒ `asyncio.run` 嵌套报错），
+        必须 `await gw.serve()`。
+        """
+        import uvicorn
+
+        config = uvicorn.Config(self.app, host=host, port=port, log_level="warning")
+        await uvicorn.Server(config).serve()
+
     async def reload(self) -> int:
         """原子重装配：先在锁内 hydrate（失败同样不半替换），构建成功才替换在途 app。"""
         async with self._reload_lock:
