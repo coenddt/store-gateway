@@ -18,9 +18,19 @@
 
 ### Fixed
 
+- **`py/pyproject.toml` 的 `grpc` extra 补全**：`store-grpc-py` → `store-grpc-py[grpc]`。此前 `pip install
+  "store-gateway-py[rest,graphql,grpc]"` 只带入 `grpcio`，缺 `grpcio-tools`，gRPC 皮一导入即失败
+  （实测：补装前报缺模块；改为 `[grpc]` 后 PyPI 形态可装配）。
 - `node/test/gateway.test.js` 的 GraphQL 断言由旧命名 `list_User` 改为 `listUser`，并新增
   `assert.equal(gqlBody.errors, undefined, ...)`——此前断言旧命名会把「查询字段不存在」固化进 CI。
 - 测试 mock store 补 `withDegradedScope(fn)`（store-api-node 0.6.x 的请求级降级容器契约）。
+
+### Added（装配后契约用例）
+
+- node `E1` / py `test_e1_listuser_naming_and_limit_code`：`serve()` 装配后 GraphQL 仍用 `listUser` 命名，
+  `ERR_LIMIT` 映射为 `extensions.code = 'LIMIT'`（不再被装配层改写）。
+- node `E2` / py `test_e2_permission_403_both_skins`：`store.query` 抛权限错误时，REST 与 GraphQL
+  两条皮都返回 HTTP 403，GraphQL 错误带 `extensions.code = 'FORBIDDEN'`。
 
 ### Added（CI）
 
