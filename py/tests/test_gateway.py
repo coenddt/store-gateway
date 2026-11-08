@@ -249,8 +249,8 @@ def test_e1_listuser_naming_and_limit_code():
             gw.stop()
 
 
-def test_e2_permission_403_both_skins():
-    """权限错误在 REST / GraphQL 装配后均为 403（FORBIDDEN）。"""
+def test_e2_permission_error_both_skins():
+    """权限错误：REST 皮肤返回 403，GraphQL 皮肤按 graphql-over-http 返回 200 + FORBIDDEN。"""
     store = make_mock_store()
 
     async def deny(gql, params=None):
@@ -267,7 +267,7 @@ def test_e2_permission_403_both_skins():
         rest = client.get("/api/User")
         assert rest.status_code == 403, rest.text
         gql = client.post("/gql", json={"query": "{ listUser { name } }"})
-        assert gql.status_code == 403, gql.text
+        assert gql.status_code == 200, gql.text
         assert gql.json()["errors"][0]["extensions"]["code"] == "FORBIDDEN", gql.text
     finally:
         if gw.grpc is not None:
