@@ -80,22 +80,60 @@ mounts: [(app, ctx) => { app.get('/health', async () => ({ data: 'ok' })); }]
 
 On Node the signature is `(app, ctx)` with `ctx = { store }`; on Python it is `(app, store)` and may be async. Mounts run on every reload, so endpoints are rebuilt with the assembly. A throwing mount fails the assembly; `mounts` alone — with no skin enabled — is a legal custom-endpoint service and does not trigger `ERR_NO_SKIN`.
 
+## Dependency requirements
+
+> The `0.3.0` / `1.0.0` versions in this section and the table below are **target versions**, shipping in this batch; until then the registry still serves the old line — install from this repo's source.
+
+> ⚠️ **The gateway's skin dependencies must point at store-api 1.0.0.** If your install still says `^0.6.3`, what you get is broken: caret caps the range at `0.6.x` (`^0.6.3` ≡ `>=0.6.3 <0.7.0`), so npm will **never** resolve `1.0.0`. The runtime keeps loading the old skin, which is incompatible with `nodejs-store 5.1.3+` / core 5.x — requests fail with 500. Nothing errors at install time; it only shows up at runtime.
+
+All three skins (`store-api-node` / `store-graphql-node` / `store-grpc-node`) must be upgraded in the same release batch as **store-api 1.0.0**; do not mix them. Gateway 0.3.0 declares all three as `>=1.0.0 <2.0.0` in both dependencies and peers; on Python the `rest` / `graphql` / `grpc` extras are `store-api-py>=1.0.0,<2.0.0`, `store-graphql-py>=1.0.0,<2.0.0` and `store-grpc-py[grpc]>=1.0.0,<2.0.0`. Mixing lines (e.g. api 1.0.0 + graphql 0.6.2) makes the GraphQL assembly fail with `Expected {...} to be a GraphQL schema`.
+
+**Correct install on Node (all skins together):**
+
+```bash
+npm i store-gateway-node@0.3.0 store-api-node@^1.0.0 store-graphql-node@^1.0.0 store-grpc-node@^1.0.0 nodejs-store@^5.1.3
+```
+
+With REST only you may install just `store-api-node@^1.0.0`; once GraphQL / gRPC is enabled, its skin must also be `^1.0.0` — do not stay on `0.6.x` / `0.2.x`.
+
+**Correct install on Python:**
+
+```bash
+pip install "store-gateway-py[rest]>=0.3.0" "store-api-py>=1.0.0,<2.0.0"
+```
+
+The `graphql` / `grpc` extras now carry their own floors (`store-graphql-py>=1.0.0,<2.0.0`, `store-grpc-py[grpc]>=1.0.0,<2.0.0`); install the matching extra to enable them.
+
+**Verify what actually resolved — seeing 0.6.x / 0.2.x means you installed it wrong:**
+
+```bash
+npm ls store-api-node store-graphql-node store-grpc-node   # all must be 1.0.x
+```
+
+```bash
+pip show store-api-py store-graphql-py store-grpc-py        # all must be 1.0.x
+```
+
+If you already installed the wrong one, raise all three skins to `^1.0.0` explicitly in your own `package.json` (do not expect a transitive old range to follow), remove `node_modules` and the lockfile, reinstall, then re-check with the commands above.
+
+> **Behaviour change for GraphQL permission checks**: since store-graphql 1.0.0, execution-time permission denials return HTTP 200 with `errors[0].extensions.code === 'FORBIDDEN'` (the old skin returned 403); pre-execution failures remain 403/401. Callers that keyed off the HTTP status must read `extensions.code` instead. REST is unchanged at 403.
+
 ## Run it
 
-| Runtime | Package | Version | Entry point |
+| Runtime | Package | Target version | Entry point |
 |---|---|---|---|
-| Node.js ≥ 18 | `store-gateway-node` | 0.2.2 | `require('store-gateway-node').serve` |
-| Python ≥ 3.10 | `store-gateway-py` | 0.2.2 | `from store_gateway import build` (async) |
+| Node.js ≥ 18 | `store-gateway-node` | 0.3.0 | `require('store-gateway-node').serve` |
+| Python ≥ 3.10 | `store-gateway-py` | 0.3.0 | `from store_gateway import build` (async), `Gateway.serve` |
 
 ```bash
-npm install store-gateway-node
+npm install store-gateway-node@0.3.0 store-api-node@^1.0.0 nodejs-store@^5.1.3
 ```
 
 ```bash
-pip install "store-gateway-py[rest,graphql,grpc]"
+pip install "store-gateway-py[rest]>=0.3.0" "store-api-py>=1.0.0,<2.0.0"
 ```
 
-The Python extras map one-to-one to `store-api-py`, `store-graphql-py` and `store-grpc-py`; install only the extras you enable. On Node the skin packages are declared as dependencies and as optional peers, but they are `require`d lazily — an unused skin is never loaded.
+The commands above cover the REST skin; swap the extra for `rest` / `graphql` / `grpc` as needed — see the previous section for the full set. The Python extras map one-to-one to `store-api-py`, `store-graphql-py` and `store-grpc-py`; install only the extras you enable. The `grpc` extra already carries the full `store-grpc-py[grpc]` dependency set. On Node the skin packages are declared as dependencies and as optional peers, but they are `require`d lazily — an unused skin is never loaded.
 
 ### Node.js
 
@@ -127,7 +165,7 @@ await gw.close();           // HTTP + gRPC + current app
 
 ### Python
 
-`build()` is a coroutine. Inside an event loop you must `await gw.serve()` (wraps `uvicorn.Server.serve`); only outside a loop may you use the blocking `gw.run()`. The gRPC server is already started inside `build()`.
+`build()` is a coroutine. `Gateway.serve(host='127.0.0.1', port=3000)` is a coroutine too: inside an event loop you must `await gw.serve()` (wraps `uvicorn.Server.serve`; omitting the arguments means `127.0.0.1:3000`); only outside a loop may you use the blocking `gw.run()`. The gRPC server is already started inside `build()`; `serve()` carries the HTTP side only.
 
 ```python
 import asyncio

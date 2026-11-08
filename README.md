@@ -84,22 +84,60 @@ mounts: [(app, ctx) => { app.get('/health', async () => ({ data: 'ok' })); }]
 
 Node 的签名是 `(app, ctx)`，`ctx = { store }`；Python 是 `(app, store)`，可以是 async。每次 reload 都会重跑 mounts，所以这些端点随装配一起重建。mount 抛错会让本次装配失败。只有 `mounts`、不启用任何皮肤，是一个合法的自定义端点服务，不触发 `ERR_NO_SKIN`。
 
+## 依赖版本要求
+
+> 本节与下方表格里的 `0.3.0` / `1.0.0` 均为**目标版本**，随本批次统一发布；发布前 registry 上仍是旧线，请从本仓源码安装。
+
+> ⚠️ **gateway 的皮肤依赖必须指向 store-api 1.0.0。** 若安装时仍写 `^0.6.3`，装出来的进程是坏的：caret 把上限锁在 `0.6.x`（`^0.6.3` ≡ `>=0.6.3 <0.7.0`），npm 根本不会解析到 `1.0.0`，运行期加载的仍是旧皮，与 `nodejs-store 5.1.3+` / core 5.x 不兼容，请求直接 500。安装阶段不报错，错误只在运行期出现。
+
+三个皮肤（`store-api-node` / `store-graphql-node` / `store-grpc-node`）必须与 **store-api 1.0.0** 同一发布批次升级，不要混搭。gateway 0.3.0 自身已把三个皮肤的依赖与 peer 下限都抬到 `>=1.0.0 <2.0.0`；Python 侧 `rest` / `graphql` / `grpc` 三个 extra 分别为 `store-api-py>=1.0.0,<2.0.0`、`store-graphql-py>=1.0.0,<2.0.0`、`store-grpc-py[grpc]>=1.0.0,<2.0.0`。混搭（例如 api 1.0.0 + graphql 0.6.2）会让 GraphQL 装配直接报 `Expected {...} to be a GraphQL schema`。
+
+**Node 正确安装（三皮一起装）：**
+
+```bash
+npm i store-gateway-node@0.3.0 store-api-node@^1.0.0 store-graphql-node@^1.0.0 store-grpc-node@^1.0.0 nodejs-store@^5.1.3
+```
+
+只启用 REST 时，可只装 `store-api-node@^1.0.0`；一旦启用 GraphQL / gRPC，对应皮肤也必须取 `^1.0.0`，不要停留在 `0.6.x` / `0.2.x`。
+
+**Python 正确安装：**
+
+```bash
+pip install "store-gateway-py[rest]>=0.3.0" "store-api-py>=1.0.0,<2.0.0"
+```
+
+`graphql` / `grpc` extras 各自带了下限（`store-graphql-py>=1.0.0,<2.0.0`、`store-grpc-py[grpc]>=1.0.0,<2.0.0`），启用时直接装对应 extra 即可。
+
+**装完核对实际解析结果——看到 0.6.x / 0.2.x 就是装错了：**
+
+```bash
+npm ls store-api-node store-graphql-node store-grpc-node   # 须全为 1.0.x
+```
+
+```bash
+pip show store-api-py store-graphql-py store-grpc-py        # 须全为 1.0.x
+```
+
+已装错时，先在应用 `package.json` 里显式把三个皮肤一起提到 `^1.0.0`（不要指望传递依赖自动跟进旧范围），清掉 `node_modules` 与锁文件后重装，再用上面的命令复核。
+
+> **GraphQL 权限判定的行为变化**：store-graphql 1.0.0 起，执行期权限拒绝返回 HTTP 200 + `errors[0].extensions.code === 'FORBIDDEN'`（旧皮是 403）；预执行阶段仍为 403/401。按状态码判权限的调用方需要改读 `extensions.code`。REST 不受影响，仍为 403。
+
 ## 跑起来
 
-| 运行时 | 包 | 版本 | 入口 |
+| 运行时 | 包 | 目标版本 | 入口 |
 |---|---|---|---|
-| Node.js ≥ 18 | `store-gateway-node` | 0.2.2 | `require('store-gateway-node').serve` |
-| Python ≥ 3.10 | `store-gateway-py` | 0.2.2 | `from store_gateway import build`（async） |
+| Node.js ≥ 18 | `store-gateway-node` | 0.3.0 | `require('store-gateway-node').serve` |
+| Python ≥ 3.10 | `store-gateway-py` | 0.3.0 | `from store_gateway import build`（async）、`Gateway.serve` |
 
 ```bash
-npm install store-gateway-node
+npm install store-gateway-node@0.3.0 store-api-node@^1.0.0 nodejs-store@^5.1.3
 ```
 
 ```bash
-pip install "store-gateway-py[rest,graphql,grpc]"
+pip install "store-gateway-py[rest]>=0.3.0" "store-api-py>=1.0.0,<2.0.0"
 ```
 
-Python 的 extras 与 `store-api-py`、`store-graphql-py`、`store-grpc-py` 一一对应，只装你要启用的。Node 侧皮肤包声明为依赖兼 optional peer，但都是惰性 `require`——没用到的皮肤从不加载。
+上面的命令覆盖 REST 皮肤，按需替换 extra 为 `rest` / `graphql` / `grpc`，完整组合见上一节「依赖版本要求」。Python 的 extras 与 `store-api-py`、`store-graphql-py`、`store-grpc-py` 一一对应，只装你要启用的；`grpc` extra 已带上 `store-grpc-py[grpc]` 的完整依赖。Node 侧皮肤包声明为依赖兼 optional peer，但都是惰性 `require`——没用到的皮肤从不加载。
 
 ### Node.js
 
@@ -131,7 +169,7 @@ await gw.close();           // HTTP + gRPC + 当前 app
 
 ### Python
 
-`build()` 是协程。在事件循环内必须 `await gw.serve()`（内部 `uvicorn.Server.serve`）；在协程外才可用阻塞的 `gw.run()`。gRPC server 在 `build()` 内部已经启动。
+`build()` 是协程。`Gateway.serve(host='127.0.0.1', port=3000)` 也是协程：在事件循环内必须 `await gw.serve()`（内部 `uvicorn.Server.serve`，省略参数即 `127.0.0.1:3000`）；在协程外才可用阻塞的 `gw.run()`。gRPC server 在 `build()` 内部已经启动，`serve()` 只承载 HTTP。
 
 ```python
 import asyncio

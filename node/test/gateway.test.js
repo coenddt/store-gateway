@@ -177,7 +177,7 @@ test('E1：GraphQL listUser 命名与 ERR_LIMIT extensions.code（装配后）',
   }
 });
 
-test('E2：权限错误在 REST / GraphQL 装配后均为 403', async () => {
+test('E2：权限错误 REST 403 / GraphQL 200 + FORBIDDEN（1.0.0 契约）', async () => {
   const store = makeMockStore();
   store.query = async () => { throw new store.PermissionError('ERR_PERMISSION:无访问权限: User') };
   const gw = await serve(store, {
@@ -192,7 +192,9 @@ test('E2：权限错误在 REST / GraphQL 装配后均为 403', async () => {
       body: JSON.stringify({ query: '{ listUser { name } }' }),
     });
     const gqlBody = await gql.json();
-    assert.equal(gql.status, 403, JSON.stringify(gqlBody));
+    // store-graphql 1.0.0 契约：执行期权限错误走 HTTP 200，靠 extensions.code=FORBIDDEN 区分
+    // （旧皮 0.6.x 返回 403；gateway 0.3.0 只支持 1.0.0 线）
+    assert.equal(gql.status, 200, JSON.stringify(gqlBody));
     assert.equal(gqlBody.errors[0].extensions.code, 'FORBIDDEN');
     const rest = await fetch(`${gw.http.url}/api/User`);
     assert.equal(rest.status, 403, await rest.text());

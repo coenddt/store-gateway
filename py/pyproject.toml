@@ -1,6 +1,6 @@
 [project]
 name = "store-gateway-py"
-version = "0.2.2"
+version = "0.3.0"
 description = "Optional combiner for the three py-store API skins (REST store-api-py / GraphQL store-graphql-py / gRPC store-grpc-py): config-driven per-skin enable switches"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9,9 +9,9 @@ keywords = ["py-store", "storepy", "gateway", "rest", "graphql", "grpc", "plugga
 dependencies = ["fastapi>=0.110", "uvicorn>=0.29"]
 
 [project.optional-dependencies]
-rest = ["store-api-py"]
-graphql = ["store-graphql-py"]
-grpc = ["store-grpc-py[grpc]"]
+rest = ["store-api-py>=1.0.0,<2.0.0"]
+graphql = ["store-graphql-py>=1.0.0,<2.0.0"]
+grpc = ["store-grpc-py[grpc]>=1.0.0,<2.0.0"]
 # 皮肤包（store-api-py / store-graphql-py / store-grpc-py）本地开发时以
 # `pip install -e` 各自仓库路径安装（发布 PyPI 前不进 dev extras）
 dev = ["pytest>=8", "httpx>=0.27"]
