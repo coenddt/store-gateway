@@ -49,7 +49,19 @@ jobs:
         run: npm install --no-fund --no-audit && npm test
       - name: Pack & inspect
         run: npm pack --dry-run
+      # 幂等：版本已在 npm 上则跳过（重跑 / tag 重指时不撞「已存在」）
+      - name: Check version on npm
+        id: exist
+        run: |
+          TAG=${GITHUB_REF_NAME#v}
+          if npm view "store-gateway-node@$TAG" version >/dev/null 2>&1; then
+            echo "store-gateway-node@$TAG 已在 npm，跳过发布"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish
+        if: steps.exist.outputs.exists == 'false'
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -81,7 +93,7 @@ jobs:
       - name: Test
         run: |
           pip install pytest httpx fastapi uvicorn graphql-core grpcio grpcio-tools
-          pip install -e store-gateway/py
+          pip install -e .
           python -m pytest -q
         working-directory: store-gateway/py
       - name: Check tag matches package version
